@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>圖片等比例縮放工具</title>
+    <style>
+        /* CSS 樣式 */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        h1 {
+            color: #1c1e21;
+            margin-top: 0;
+            margin-bottom: 20px;
+        }
+
+        #drop-zone {
+            border: 2px dashed #ccd0d5;
+            border-radius: 8px;
+            padding: 40px 20px;
+            cursor: pointer;
+            transition: background-color 0.3s, border-color 0.3s;
+            color: #606770;
+        }
+
+        #drop-zone.drag-over {
+            background-color: #e7f3ff;
+            border-color: #1877f2;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        #preview-container {
+            margin-top: 20px;
+            display: none; /* 初始隱藏 */
+        }
+
+        #image-preview {
+            max-width: 100%;
+            max-height: 250px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+        }
+
+        .controls {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e4e6eb;
+            display: none; /* 初始隱藏 */
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .input-group label {
+            cursor: pointer;
+        }
+
+        #size-input {
+            width: 80px;
+            padding: 8px;
+            border: 1px solid #ccd0d5;
+            border-radius: 6px;
+            font-size: 16px;
+            text-align: center;
+        }
+
+        #convert-btn {
+            background-color: #1877f2;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            width: 100%;
+        }
+
+        #convert-btn:hover {
+            background-color: #166fe5;
+        }
+
+        #status-message {
+            color: #fa383e;
+            margin-top: 15px;
+            min-height: 1.2em;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>圖片等比例縮放工具</h1>
+
+        <div id="drop-zone">
+            <p>將圖片拖曳至此，或點擊選擇檔案</p>
+            <input type="file" id="file-input" accept="image/*">
+        </div>
+        
+        <div id="preview-container">
+            <img id="image-preview" src="" alt="圖片預覽">
+        </div>
+
+        <div class="controls" id="controls-panel">
+            <div class="input-group">
+                <label>
+                    <input type="radio" name="resize-by" value="width" checked> 寬度
+                </label>
+                <label>
+                    <input type="radio" name="resize-by" value="height"> 高度
+                </label>
+                <input type="number" id="size-input" value="150" min="1">
+                <span>px</span>
+            </div>
+
+            <button id="convert-btn">轉換並下載</button>
+        </div>
+        <p id="status-message"></p>
+    </div>
+
+    <script>
+    // JavaScript 功能
+    document.addEventListener('DOMContentLoaded', () => {
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const imagePreview = document.getElementById('image-preview');
+        const previewContainer = document.getElementById('preview-container');
+        const controlsPanel = document.getElementById('controls-panel');
+        const convertBtn = document.getElementById('convert-btn');
+        const sizeInput = document.getElementById('size-input');
+        const statusMessage = document.getElementById('status-message');
+        
+        let originalImage = null; // 用於儲存原始圖片的 Image 物件
+
+        // --- 圖片讀取功能 ---
+
+        // 點擊區域以觸發檔案選擇
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        // 拖曳進入區域
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault(); // 防止瀏覽器預設行為 (開啟檔案)
+            dropZone.classList.add('drag-over');
+        });
+
+        // 拖曳離開區域
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+
+        // 放下檔案
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        // 透過檔案選擇器選擇檔案
+        fileInput.addEventListener('change', (e) => {
+            const files = e.target.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        function handleFile(file) {
+            if (!file.type.startsWith('image/')) {
+                statusMessage.textContent = '錯誤：請選擇一個圖片檔案。';
+                return;
+            }
+
+            const reader = new FileReader();
+            
+            reader.onload = (e) => {
+                // 建立一個 Image 物件來獲取原始尺寸
+                originalImage = new Image();
+                originalImage.onload = () => {
+                    // 圖片成功載入後，顯示預覽和控制項
+                    imagePreview.src = e.target.result;
+                    previewContainer.style.display = 'block';
+                    controlsPanel.style.display = 'flex';
+                    statusMessage.textContent = ''; // 清除舊訊息
+                };
+                originalImage.onerror = () => {
+                    statusMessage.textContent = '錯誤：無法讀取圖片檔案。';
+                }
+                originalImage.src = e.target.result; // 這行會觸發上面的 onload
+            };
+
+            reader.readAsDataURL(file);
+        }
+
+        // --- 轉換與下載功能 ---
+
+        convertBtn.addEventListener('click', () => {
+            if (!originalImage) {
+                statusMessage.textContent = '請先上傳一張圖片。';
+                return;
+            }
+
+            const resizeBy = document.querySelector('input[name="resize-by"]:checked').value;
+            const targetSize = parseInt(sizeInput.value, 10);
+
+            if (isNaN(targetSize) || targetSize <= 0) {
+                statusMessage.textContent = '請輸入一個有效的正數尺寸。';
+                return;
+            }
+
+            const originalWidth = originalImage.width;
+            const originalHeight = originalImage.height;
+            const aspectRatio = originalWidth / originalHeight;
+
+            let newWidth, newHeight;
+
+            // 根據選擇的基準（寬度或高度）計算新的尺寸
+            if (resizeBy === 'width') {
+                newWidth = targetSize;
+                newHeight = newWidth / aspectRatio;
+            } else { // resizeBy === 'height'
+                newHeight = targetSize;
+                newWidth = newHeight * aspectRatio;
+            }
+            
+            // 四捨五入以避免小數像素
+            newWidth = Math.round(newWidth);
+            newHeight = Math.round(newHeight);
+
+            // 建立一個離屏 Canvas 來進行繪製
+            const canvas = document.createElement('canvas');
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+            const ctx = canvas.getContext('2d');
+
+            // 設定高品質縮放演算法
+            // 'high' 是目前瀏覽器支援的最佳選項
+            ctx.imageSmoothingQuality = 'high';
+
+            // 將原始圖片繪製到 Canvas 上，實現縮放
+            ctx.drawImage(originalImage, 0, 0, newWidth, newHeight);
+
+            // 觸發下載
+            const link = document.createElement('a');
+            // 使用 toDataURL('image/png') 來確保透明度被保留
+            link.href = canvas.toDataURL('image/png');
+            link.download = 'resized-image.png';
+            
+            // 模擬點擊以下載檔案
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            statusMessage.textContent = `圖片已轉換並下載！ (${newWidth}x${newHeight}px)`;
+        });
+    });
+    </script>
+
+</body>
+</html>
